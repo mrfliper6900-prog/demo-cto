@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { getDb } from './db.js';
 import { v4 as uuidv4 } from 'uuid';
+import { generateContentIdeas, qualifyLeadWithAI } from './ai.js';
 
 const app = express();
 app.use(cors());
@@ -24,7 +25,18 @@ app.post('/sms', async (req, res) => {
   await db.run('INSERT INTO messages (lead_id, sender, content) VALUES (?, ?, ?)', [lead.id, 'user', Body]);
 
   // AI Qualification Logic
-  const response = await processAIQualification(db, lead, Body);
+  const messages = await db.all('SELECT * FROM messages WHERE lead_id = ? ORDER BY created_at ASC', lead.id);
+  const aiResult = await qualifyLeadWithAI(lead, Body, messages);
+
+  if (aiResult.status) await db.run('UPDATE leads SET status = ? WHERE id = ?', [aiResult.status, lead.id]);
+  if (aiResult.job_type) await db.run('UPDATE leads SET job_type = ? WHERE id = ?', [aiResult.job_type, lead.id]);
+  if (aiResult.urgency) await db.run('UPDATE leads SET urgency = ? WHERE id = ?', [aiResult.urgency, lead.id]);
+  if (aiResult.location) await db.run('UPDATE leads SET location = ? WHERE id = ?', [aiResult.location, lead.id]);
+  if (aiResult.name) await db.run('UPDATE leads SET name = ? WHERE id = ?', [aiResult.name, lead.id]);
+  
+  await db.run('UPDATE leads SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', [lead.id]);
+
+  const response = aiResult.response;
 
   // Log outbound message
   await db.run('INSERT INTO messages (lead_id, sender, content) VALUES (?, ?, ?)', [lead.id, 'bot', response]);
@@ -68,25 +80,35 @@ app.get('/api/leads/:id/messages', async (req, res) => {
   res.json(messages);
 });
 
+app.post('/api/leads/:id/messages', async (req, res) => {
+  const { id } = req.params;
+  const { content, sender } = req.body;
+  const db = await getDb();
+
+  await db.run('INSERT INTO messages (lead_id, sender, content) VALUES (?, ?, ?)', [id, sender || 'agent', content]);
+  
+  // If it's an agent message, we would normally trigger an actual SMS via Twilio here
+  if (sender === 'agent') {
+    const lead = await db.get('SELECT phone FROM leads WHERE id = ?', id);
+    console.log(`[Manual SMS] Sending to ${lead?.phone}: ${content}`);
+  }
+
+  const newMessage = await db.get('SELECT * FROM messages WHERE lead_id = ? ORDER BY created_at DESC LIMIT 1', id);
+  res.json(newMessage);
+});
+
+app.get('/api/content-ideas', async (req, res) => {
+  try {
+    const ideas = await generateContentIdeas();
+    res.json(ideas);
+  } catch (error) {
+    console.error('Error generating content ideas:', error);
+    res.status(500).json({ error: 'Failed to generate ideas' });
+  }
+});
+
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
-
-async function processAIQualification(db: any, lead: any, message: string) {
-  const msg = message.toLowerCase();
-  if (msg.includes('roof') || msg.includes('leak') || msg.includes('repair')) {
-    await db.run('UPDATE leads SET job_type = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', ['roofing', 'hot', lead.id]);
-    return "I see you're looking for roofing help. Is this an emergency or a standard repair?";
-  }
-  if (msg.includes('emergency') || msg.includes('asap') || msg.includes('now')) {
-    await db.run('UPDATE leads SET urgency = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', ['high', 'hot', lead.id]);
-    return "Got it, we'll prioritize this. What's your address so we can check our schedule?";
-  }
-  if (!lead.name && msg.length < 50 && msg.split(' ').length < 4) {
-    await db.run('UPDATE leads SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [message, lead.id]);
-    return `Thanks ${message}. What kind of service are you looking for today?`;
-  }
-  return "Thanks for the info. One of our specialists will reach out shortly, or you can book a time here: [Link]";
-}
 
 export default app;

@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { createServerFn } from "@tanstack/react-start";
 import { 
   Users, 
   MessageSquare, 
@@ -15,41 +16,121 @@ import {
   ChevronRight,
   Send,
   Zap,
-  BarChart3
+  BarChart3,
+  RefreshCcw
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import type { Lead, Message, ContentIdea } from '../types/index.js';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+// Server Functions
+const getLeads = createServerFn({ method: "GET" }).handler(async () => {
+  const response = await fetch('http://localhost:3000/api/leads');
+  return (await response.json()) as Lead[];
+});
+
+const getMessages = createServerFn({ method: "GET" })
+  .validator((id: string) => id)
+  .handler(async ({ data: id }) => {
+    const response = await fetch(`http://localhost:3000/api/leads/${id}/messages`);
+    return (await response.json()) as Message[];
+  });
+
+const getContentIdeas = createServerFn({ method: "GET" }).handler(async () => {
+  const response = await fetch('http://localhost:3000/api/content-ideas');
+  return (await response.json()) as ContentIdea[];
+});
+
+const sendMessage = createServerFn({ method: "POST" })
+  .validator((data: { leadId: string, content: string }) => data)
+  .handler(async ({ data }) => {
+    const response = await fetch(`http://localhost:3000/api/leads/${data.leadId}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: data.content, sender: 'agent' })
+    });
+    return (await response.json()) as Message;
+  });
+
 export const Route = createFileRoute("/dashboard")({
+  loader: async () => {
+    const [leads, contentIdeas] = await Promise.all([
+      getLeads(),
+      getContentIdeas()
+    ]);
+    return { leads, contentIdeas };
+  },
   component: Dashboard,
 });
 
 function Dashboard() {
+  const { leads: initialLeads, contentIdeas } = Route.useLoaderData();
+  const [leads, setLeads] = useState<Lead[]>(initialLeads);
   const [view, setView] = useState('pipeline');
-  const [selectedLead, setSelectedLead] = useState<any>(null);
+  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const leads = [
-    { id: 1, name: 'John Smith', phone: '(555) 123-4567', status: 'hot', job_type: 'Roof Leak Repair', summary: 'Emergency repair needed for a residential property.', created_at: '2026-06-27T10:00:00Z' },
-    { id: 2, name: 'Sarah Johnson', phone: '(555) 987-6543', status: 'warm', job_type: 'Gutter Cleaning', summary: 'Wants a quote for seasonal maintenance.', created_at: '2026-06-27T09:30:00Z' },
-    { id: 3, name: 'Mike Brown', phone: '(555) 456-7890', status: 'cold', job_type: 'New Roof Installation', summary: 'Looking for financing options.', created_at: '2026-06-26T15:00:00Z' },
-  ];
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
 
-  const messages = [
-    { id: 1, sender: 'bot', content: 'Hi! This is United States Roofing. We missed your call. How can we help you?', created_at: '2026-06-27T10:00:05Z' },
-    { id: 2, sender: 'user', content: 'Hey, I have a major leak in my kitchen ceiling after the storm. Can someone come today?', created_at: '2026-06-27T10:01:20Z' },
-    { id: 3, sender: 'bot', content: 'I am so sorry to hear that. We can definitely help. Is this an emergency repair or are you looking for a full inspection?', created_at: '2026-06-27T10:01:45Z' },
-    { id: 4, sender: 'user', content: 'Emergency! Water is dripping onto my floor.', created_at: '2026-06-27T10:02:10Z' },
-  ];
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
 
-  const contentIdeas = [
-    { platform: 'Facebook', hook: 'Storm season is here! Is your roof ready?', caption: 'Dont wait for the drip. United States Roofing offers free storm readiness inspections to keep your home dry and safe.', cta: 'Book Free Inspection' },
-    { platform: 'Instagram', hook: 'Before & After: Complete Roof Overhaul', caption: 'Swipe to see how we transformed this 20-year-old roof into a modern masterpiece. Style meets durability.', cta: 'Get a Quote' },
-  ];
+  const refreshLeads = async () => {
+    setIsRefreshing(true);
+    try {
+      const updatedLeads = await getLeads();
+      setLeads(updatedLeads);
+    } catch (error) {
+      console.error('Failed to refresh leads:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  const fetchMessages = async (leadId: string) => {
+    try {
+      const msgs = await getMessages({ data: leadId });
+      setMessages(msgs);
+    } catch (error) {
+      console.error('Failed to fetch messages:', error);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedLead) {
+      fetchMessages(selectedLead.id);
+      // Poll for new messages every 5 seconds if lead is selected
+      const interval = setInterval(() => fetchMessages(selectedLead.id), 5000);
+      return () => clearInterval(interval);
+    }
+  }, [selectedLead]);
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedLead || !newMessage.trim()) return;
+
+    const text = newMessage;
+    setNewMessage('');
+
+    try {
+      const sentMsg = await sendMessage({ data: { leadId: selectedLead.id, content: text } });
+      setMessages(prev => [...prev, sentMsg]);
+    } catch (error) {
+      console.error('Failed to send message:', error);
+    }
+  };
 
   return (
     <div className="flex h-screen bg-slate-50 font-sans text-slate-900">
@@ -92,9 +173,17 @@ function Dashboard() {
               <div className="p-4 border-b space-y-4">
                 <div className="flex justify-between items-center">
                   <h2 className="text-xl font-bold text-slate-900">Active Leads</h2>
-                  <button className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors">
-                    <Plus size={20} />
-                  </button>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={refreshLeads}
+                      className={cn("p-2 text-slate-400 hover:text-blue-600 transition-colors", isRefreshing && "animate-spin text-blue-600")}
+                    >
+                      <RefreshCcw size={18} />
+                    </button>
+                    <button className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors">
+                      <Plus size={20} />
+                    </button>
+                  </div>
                 </div>
                 <div className="relative">
                   <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -105,7 +194,7 @@ function Dashboard() {
                 {leads.map(lead => (
                   <div key={lead.id} onClick={() => setSelectedLead(lead)} className={cn("p-5 cursor-pointer hover:bg-blue-50/50 transition-all border-l-4", selectedLead?.id === lead.id ? "bg-blue-50 border-blue-600" : "border-transparent")}>
                     <div className="flex justify-between items-start mb-1">
-                      <h3 className="font-bold text-slate-900">{lead.name}</h3>
+                      <h3 className="font-bold text-slate-900">{lead.name || lead.phone}</h3>
                       <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider", lead.status === 'hot' ? 'bg-red-100 text-red-600' : lead.status === 'warm' ? 'bg-orange-100 text-orange-600' : 'bg-slate-100 text-slate-600')}>
                         {lead.status}
                       </span>
@@ -134,21 +223,36 @@ function Dashboard() {
                   </div>
                   <div className="flex-1 p-6 overflow-y-auto space-y-4 bg-gray-50">
                     {messages.map(msg => (
-                      <div key={msg.id} className={`flex ${msg.sender === 'bot' ? 'justify-start' : 'justify-end'}`}>
-                        <div className={`max-w-md p-4 rounded-2xl shadow-sm ${msg.sender === 'bot' ? 'bg-white text-slate-800 rounded-tl-none' : 'bg-blue-600 text-white rounded-tr-none'}`}>
+                      <div key={msg.id} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
+                        <div className={cn(
+                          "max-w-md p-4 rounded-2xl shadow-sm",
+                          msg.sender === 'user' ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-white text-slate-800 rounded-tl-none'
+                        )}>
                           <p className="text-sm leading-relaxed">{msg.content}</p>
-                          <p className={`text-[10px] mt-2 opacity-60 text-right ${msg.sender === 'bot' ? 'text-slate-400' : 'text-blue-100'}`}>
+                          <p className={cn(
+                            "text-[10px] mt-2 opacity-60 text-right",
+                            msg.sender === 'user' ? 'text-blue-100' : 'text-slate-400'
+                          )}>
                             {new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                           </p>
                         </div>
                       </div>
                     ))}
+                    <div ref={messagesEndRef} />
                   </div>
                   <div className="p-4 border-t bg-white">
-                    <div className="flex gap-2 p-2 bg-gray-100 rounded-xl">
-                      <input type="text" placeholder="Send a manual SMS..." className="flex-1 bg-transparent px-4 py-2 outline-none text-sm" />
-                      <button className="bg-slate-900 text-white p-2 rounded-lg hover:bg-slate-800 transition-colors"><MessageSquare size={18} /></button>
-                    </div>
+                    <form onSubmit={handleSendMessage} className="flex gap-2 p-2 bg-gray-100 rounded-xl">
+                      <input 
+                        type="text" 
+                        value={newMessage}
+                        onChange={(e) => setNewMessage(e.target.value)}
+                        placeholder="Send a manual SMS..." 
+                        className="flex-1 bg-transparent px-4 py-2 outline-none text-sm" 
+                      />
+                      <button type="submit" className="bg-slate-900 text-white p-2 rounded-lg hover:bg-slate-800 transition-colors">
+                        <MessageSquare size={18} />
+                      </button>
+                    </form>
                   </div>
                 </>
               ) : (
@@ -157,7 +261,7 @@ function Dashboard() {
                     <MessageSquare size={64} className="opacity-20" />
                   </div>
                   <p className="text-lg font-medium">Select a lead to start growing</p>
-                  <p className="text-sm opacity-60">AI is currently handling 3 active conversations</p>
+                  <p className="text-sm opacity-60">AI is currently handling {leads.length} active conversations</p>
                 </div>
               )}
             </div>

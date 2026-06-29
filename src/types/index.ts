@@ -1,22 +1,34 @@
 export interface Lead {
   id: string;
-  name?: string;
   phone: string;
-  status: 'HOT' | 'WARM' | 'COLD';
+  name?: string;
+  email?: string;
+  status: 'hot' | 'warm' | 'cold';
+  job_type?: string;
+  urgency?: string;
+  location?: string;
+  budget?: string;
   summary?: string;
   created_at: string;
+  updated_at: string;
 }
 
 export interface Message {
-  id: string;
+  id: number;
   lead_id: string;
+  sender: 'user' | 'bot' | 'agent';
   content: string;
-  direction: 'inbound' | 'outbound';
   created_at: string;
 }
 
+export interface ContentIdea {
+  platform: string;
+  hook: string;
+  caption: string;
+  cta: string;
+}
+
 export interface Settings {
-  businessName: string;
-  twilioPhoneNumber: string;
-  openaiApiKey: string;
+  key: string;
+  value: string;
 }
