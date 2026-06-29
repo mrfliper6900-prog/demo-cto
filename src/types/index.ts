@@ -9,8 +9,8 @@ export interface Lead {
   location?: string;
   budget?: string;
   summary?: string;
-  last_follow_up_step?: number;
-  last_follow_up_at?: string;
+  next_followup_at?: string;
+  followup_count?: number;
   created_at: string;
   updated_at: string;
 }
