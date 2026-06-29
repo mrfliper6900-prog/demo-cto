@@ -116,3 +116,32 @@ Return a JSON object with: status, job_type, urgency, location, name, and respon
     return { response: "Thanks for the info. We'll be in touch!" };
   }
 }
+
+export async function generateFollowUpWithAI(lead: Lead, history: Message[]): Promise<string> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    return "Hi, just checking in to see if you still need help with your roofing project?";
+  }
+
+  const openai = new OpenAI({ apiKey });
+  
+  const completion = await openai.chat.completions.create({
+    model: "gpt-3.5-turbo",
+    messages: [
+      {
+        role: "system",
+        content: `You are an AI assistant for United States Roofing Corporation. You are following up with a lead who hasn't replied to our last message.
+Keep it friendly, professional, and very brief. Refer to the previous conversation context if possible.
+
+Current Lead Data: ${JSON.stringify(lead)}
+Conversation History: ${history.map(m => `${m.sender}: ${m.content}`).join('\n')}`
+      },
+      {
+        role: "user",
+        content: "Generate a short follow-up SMS message."
+      }
+    ]
+  });
+
+  return completion.choices[0].message.content || "Just checking in—any updates on your roofing needs?";
+}

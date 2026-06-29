@@ -22,6 +22,8 @@ export async function initDb(): Promise<Database> {
       location TEXT,
       budget TEXT,
       summary TEXT,
+      last_follow_up_step INTEGER DEFAULT 0,
+      last_follow_up_at DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );

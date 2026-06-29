@@ -24,6 +24,9 @@ app.post('/sms', async (req, res) => {
   // Log inbound message
   await db.run('INSERT INTO messages (lead_id, sender, content) VALUES (?, ?, ?)', [lead.id, 'user', Body]);
 
+  // Reset follow-up step
+  await db.run('UPDATE leads SET last_follow_up_step = 0 WHERE id = ?', [lead.id]);
+
   // AI Qualification Logic
   const messages = await db.all('SELECT * FROM messages WHERE lead_id = ? ORDER BY created_at ASC', lead.id);
   const aiResult = await qualifyLeadWithAI(lead, Body, messages);
