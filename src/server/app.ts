@@ -25,13 +25,19 @@ app.post('/sms', async (req, res) => {
   await db.run('INSERT INTO messages (lead_id, sender, content) VALUES (?, ?, ?)', [lead.id, 'user', Body]);
 
   // Reset follow-up step
-  await db.run('UPDATE leads SET last_follow_up_step = 0 WHERE id = ?', [lead.id]);
+  await db.run('UPDATE leads SET next_followup_at = NULL, followup_count = 0 WHERE id = ?', [lead.id]);
 
   // AI Qualification Logic
   const messages = await db.all('SELECT * FROM messages WHERE lead_id = ? ORDER BY created_at ASC', lead.id);
   const aiResult = await qualifyLeadWithAI(lead, Body, messages);
 
-  if (aiResult.status) await db.run('UPDATE leads SET status = ? WHERE id = ?', [aiResult.status, lead.id]);
+  if (aiResult.status) {
+    await db.run('UPDATE leads SET status = ? WHERE id = ?', [aiResult.status, lead.id]);
+    if (aiResult.status === 'hot') {
+      const nextFollowUp = new Date(Date.now() + 60 * 60 * 1000).toISOString().replace('T', ' ').replace('Z', '');
+      await db.run('UPDATE leads SET next_followup_at = ?, followup_count = 0 WHERE id = ?', [nextFollowUp, lead.id]);
+    }
+  }
   if (aiResult.job_type) await db.run('UPDATE leads SET job_type = ? WHERE id = ?', [aiResult.job_type, lead.id]);
   if (aiResult.urgency) await db.run('UPDATE leads SET urgency = ? WHERE id = ?', [aiResult.urgency, lead.id]);
   if (aiResult.location) await db.run('UPDATE leads SET location = ? WHERE id = ?', [aiResult.location, lead.id]);
