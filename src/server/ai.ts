@@ -74,18 +74,8 @@ export async function qualifyLeadWithAI(lead: Lead, lastMessage: string, history
     
     // Check for slot selection (mock implementation)
     if (msg.includes('book') || msg.includes('slot') || msg.includes('9am') || msg.includes('2pm')) {
-      const slots = await calendarService.getAvailableSlots();
-      // Simple logic: if they mention '9am', pick the first 9am slot
-      if (msg.includes('9am')) {
-        return {
-          response: `Great! I've booked you for ${slots[0].start}. You'll receive a confirmation SMS shortly.`,
-          book_slot: slots[0]
-        };
-      }
-      
-      const slotList = slots.slice(0, 3).map(s => `${s.start}`).join('\n- ');
       return {
-        response: `We have the following slots available:\n- ${slotList}\nWhich one works for you?`
+        response: `You can book your roofing inspection directly here: https://7f814f512bb00e81304bc868f836895d.ctonew.app/book/${lead.id}`
       };
     }
 
@@ -93,7 +83,7 @@ export async function qualifyLeadWithAI(lead: Lead, lastMessage: string, history
       return {
         job_type: 'roofing',
         status: 'hot',
-        response: "I see you're looking for roofing help. Is this an emergency or a standard repair?"
+        response: `I see you're looking for roofing help. Is this an emergency or a standard repair? You can also book a free inspection directly here: https://7f814f512bb00e81304bc868f836895d.ctonew.app/book/${lead.id}`
       };
     }
     return {
@@ -116,21 +106,20 @@ Extract: name, job type, urgency, location.
 Status: 'hot', 'warm', 'cold'.
 Available Slots:\n${slotList}
 
-If the lead is ready to book, offer them available slots.
-If they pick a slot, include it in the 'book_slot' field of the JSON.
+If the lead is qualified as 'hot' or ready to book, give them this link: https://7f814f512bb00e81304bc868f836895d.ctonew.app/book/${lead.id}
 
 Current Lead Data: ${JSON.stringify(lead)}
 Conversation History: ${history.map(m => `${m.sender}: ${m.content}`).join('\n')}
 
-Return a JSON object with: status, job_type, urgency, location, name, response, and optionally book_slot {start, end}.`
-      },
-      {
-        role: "user",
-        content: lastMessage
-      }
-    ],
-    response_format: { type: "json_object" }
-  });
+Return a JSON object with: status, job_type, urgency, location, name, response.`
+  },
+  {
+    role: "user",
+    content: lastMessage
+  }
+],
+response_format: { type: "json_object" }
+});
 
   const content = completion.choices[0].message.content;
   if (!content) return { response: "I'm sorry, I'm having trouble processing your request." };
@@ -146,7 +135,7 @@ Return a JSON object with: status, job_type, urgency, location, name, response, 
 export async function generateFollowUpWithAI(lead: Lead, history: Message[]): Promise<string> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    return "Hi, just checking in to see if you still need help with your roofing project?";
+    return `Hi, just checking in to see if you still need help with your roofing project? You can also book a free inspection here: https://7f814f512bb00e81304bc868f836895d.ctonew.app/book/${lead.id}`;
   }
 
   const openai = new OpenAI({ apiKey });
@@ -158,6 +147,8 @@ export async function generateFollowUpWithAI(lead: Lead, history: Message[]): Pr
         role: "system",
         content: `You are an AI assistant for United States Roofing Corporation. You are following up with a lead who hasn't replied to our last message.
 Keep it friendly, professional, and very brief. Refer to the previous conversation context if possible.
+
+If the lead seems interested but hasn't booked yet, include this link: https://7f814f512bb00e81304bc868f836895d.ctonew.app/book/${lead.id}
 
 Current Lead Data: ${JSON.stringify(lead)}
 Conversation History: ${history.map(m => `${m.sender}: ${m.content}`).join('\n')}`

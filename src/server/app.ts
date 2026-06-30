@@ -3,6 +3,7 @@ import cors from 'cors';
 import { getDb } from './db.js';
 import { v4 as uuidv4 } from 'uuid';
 import { generateContentIdeas, qualifyLeadWithAI } from './ai.js';
+import { calendarService } from './calendar.js';
 
 const app = express();
 app.use(cors());
@@ -93,6 +94,28 @@ app.get('/api/appointments', async (req, res) => {
     ORDER BY a.start_time DESC
   `);
   res.json(appointments);
+});
+
+app.get('/api/leads/:id', async (req, res) => {
+  const db = await getDb();
+  const lead = await db.get('SELECT * FROM leads WHERE id = ?', req.params.id);
+  if (!lead) return res.status(404).json({ error: 'Lead not found' });
+  res.json(lead);
+});
+
+app.get('/api/calendar/slots', async (req, res) => {
+  const slots = await calendarService.getAvailableSlots();
+  res.json(slots);
+});
+
+app.post('/api/calendar/book', async (req, res) => {
+  const { leadId, slot } = req.body;
+  const success = await calendarService.bookSlot(leadId, slot);
+  if (success) {
+    res.json({ success: true });
+  } else {
+    res.status(400).json({ error: 'Failed to book slot' });
+  }
 });
 
 app.get('/api/leads/:id/messages', async (req, res) => {

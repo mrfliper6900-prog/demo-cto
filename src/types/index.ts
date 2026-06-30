@@ -30,6 +30,11 @@ export interface ContentIdea {
   cta: string;
 }
 
+export interface CalendarSlot {
+  start: string;
+  end: string;
+}
+
 export interface Appointment {
   id: number;
   lead_id: string;
