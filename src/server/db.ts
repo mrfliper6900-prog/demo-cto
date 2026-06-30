@@ -43,6 +43,8 @@ export async function initDb(): Promise<Database> {
       start_time DATETIME,
       end_time DATETIME,
       status TEXT DEFAULT 'pending',
+      reminder_24h_sent INTEGER DEFAULT 0,
+      reminder_2h_sent INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(lead_id) REFERENCES leads(id)
     );

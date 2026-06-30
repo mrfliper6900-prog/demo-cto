@@ -37,6 +37,13 @@ app.post('/sms', async (req, res) => {
   if (aiResult.location) await db.run('UPDATE leads SET location = ? WHERE id = ?', [aiResult.location, lead.id]);
   if (aiResult.name) await db.run('UPDATE leads SET name = ? WHERE id = ?', [aiResult.name, lead.id]);
   
+  if (aiResult.book_slot) {
+    await db.run('INSERT INTO appointments (lead_id, start_time, end_time, status) VALUES (?, ?, ?, ?)', 
+      [lead.id, aiResult.book_slot.start, aiResult.book_slot.end, 'confirmed']);
+    // Stop follow-ups
+    await db.run('UPDATE leads SET last_follow_up_step = 3 WHERE id = ?', [lead.id]);
+  }
+
   await db.run('UPDATE leads SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', [lead.id]);
 
   const response = aiResult.response;
@@ -75,6 +82,17 @@ app.get('/api/leads', async (req, res) => {
   const db = await getDb();
   const leads = await db.all('SELECT * FROM leads ORDER BY updated_at DESC');
   res.json(leads);
+});
+
+app.get('/api/appointments', async (req, res) => {
+  const db = await getDb();
+  const appointments = await db.all(`
+    SELECT a.*, l.name as lead_name, l.phone as lead_phone 
+    FROM appointments a
+    JOIN leads l ON a.lead_id = l.id
+    ORDER BY a.start_time DESC
+  `);
+  res.json(appointments);
 });
 
 app.get('/api/leads/:id/messages', async (req, res) => {

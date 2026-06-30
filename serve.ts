@@ -1,6 +1,7 @@
 import app from './src/server/app.js';
 import { getDb } from './src/server/db.js';
 import { startFollowUpScheduler } from './src/server/follow-up.js';
+import { startReminderScheduler } from './src/server/reminders.js';
 import handler from "./dist/server/server.js";
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -48,6 +49,7 @@ app.all('*', async (req, res, next) => {
 
 getDb().then(() => {
   startFollowUpScheduler();
+  startReminderScheduler();
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`LeadFlow AI serving on http://0.0.0.0:${PORT}`);
   });

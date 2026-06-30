@@ -22,7 +22,7 @@ import {
 import { useState, useEffect, useRef } from 'react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import type { Lead, Message, ContentIdea } from '../types/index.js';
+import type { Lead, Message, ContentIdea, Appointment } from '../types/index.js';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -46,6 +46,11 @@ const getContentIdeas = createServerFn({ method: "GET" }).handler(async () => {
   return (await response.json()) as ContentIdea[];
 });
 
+const getAppointments = createServerFn({ method: "GET" }).handler(async () => {
+  const response = await fetch('http://localhost:3000/api/appointments');
+  return (await response.json()) as Appointment[];
+});
+
 const sendMessage = createServerFn({ method: "POST" })
   .validator((data: { leadId: string, content: string }) => data)
   .handler(async ({ data }) => {
@@ -59,18 +64,20 @@ const sendMessage = createServerFn({ method: "POST" })
 
 export const Route = createFileRoute("/dashboard")({
   loader: async () => {
-    const [leads, contentIdeas] = await Promise.all([
+    const [leads, contentIdeas, appointments] = await Promise.all([
       getLeads(),
-      getContentIdeas()
+      getContentIdeas(),
+      getAppointments()
     ]);
-    return { leads, contentIdeas };
+    return { leads, contentIdeas, appointments };
   },
   component: Dashboard,
 });
 
 function Dashboard() {
-  const { leads: initialLeads, contentIdeas } = Route.useLoaderData();
+  const { leads: initialLeads, contentIdeas, appointments: initialAppointments } = Route.useLoaderData();
   const [leads, setLeads] = useState<Lead[]>(initialLeads);
+  const [appointments, setAppointments] = useState<Appointment[]>(initialAppointments);
   const [view, setView] = useState('pipeline');
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -90,10 +97,14 @@ function Dashboard() {
   const refreshLeads = async () => {
     setIsRefreshing(true);
     try {
-      const updatedLeads = await getLeads();
+      const [updatedLeads, updatedApps] = await Promise.all([
+        getLeads(),
+        getAppointments()
+      ]);
       setLeads(updatedLeads);
+      setAppointments(updatedApps);
     } catch (error) {
-      console.error('Failed to refresh leads:', error);
+      console.error('Failed to refresh dashboard:', error);
     } finally {
       setIsRefreshing(false);
     }
@@ -214,11 +225,22 @@ function Dashboard() {
                 <>
                   <div className="p-4 border-b flex justify-between items-center bg-gray-50 shadow-sm">
                     <div>
-                      <h2 className="text-lg font-bold text-slate-900">{selectedLead.name || selectedLead.phone}</h2>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-lg font-bold text-slate-900">{selectedLead.name || selectedLead.phone}</h2>
+                        {appointments.some(a => a.lead_id === selectedLead.id && a.status === 'confirmed') && (
+                          <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase flex items-center gap-1">
+                            <Calendar size={10} /> Scheduled
+                          </span>
+                        )}
+                      </div>
                       <p className="text-sm text-slate-500">{selectedLead.phone}</p>
                     </div>
                     <div className="flex gap-2">
-                      <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">Book Appointment</button>
+                      {appointments.some(a => a.lead_id === selectedLead.id && a.status === 'confirmed') ? (
+                        <button className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-sm font-semibold transition-colors">Reschedule</button>
+                      ) : (
+                        <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">Book Appointment</button>
+                      )}
                     </div>
                   </div>
                   <div className="flex-1 p-6 overflow-y-auto space-y-4 bg-gray-50">
@@ -294,11 +316,46 @@ function Dashboard() {
           </div>
         )}
         {view === 'bookings' && (
-          <div className="flex-1 flex items-center justify-center text-slate-400 bg-gray-50">
-            <div className="text-center">
-              <Calendar size={64} className="mx-auto mb-4 opacity-20" />
-              <p className="text-lg font-medium">No appointments booked yet</p>
-              <p className="text-sm">Once AI qualifies a lead, they will appear here.</p>
+          <div className="flex-1 p-8 overflow-y-auto bg-gray-50">
+            <div className="max-w-4xl mx-auto">
+              <header className="mb-8">
+                <h2 className="text-3xl font-bold text-slate-900">Upcoming Appointments</h2>
+                <p className="text-slate-500">Confirmed bookings handled by LeadFlow AI.</p>
+              </header>
+              <div className="grid grid-cols-1 gap-4">
+                {appointments.length > 0 ? appointments.map((app) => (
+                  <div key={app.id} className="bg-white p-6 rounded-2xl shadow-sm border flex justify-between items-center">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="font-bold text-slate-900 text-lg">{app.lead_name || app.lead_phone}</h3>
+                        <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded text-xs font-bold uppercase">{app.status}</span>
+                      </div>
+                      <div className="flex items-center gap-4 text-sm text-slate-500">
+                        <div className="flex items-center gap-1">
+                          <Calendar size={14} />
+                          {new Date(app.start_time).toLocaleDateString()}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Clock size={14} />
+                          {new Date(app.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Phone size={14} />
+                          {app.lead_phone}
+                        </div>
+                      </div>
+                    </div>
+                    <button className="text-slate-400 hover:text-slate-600">
+                      <MoreVertical size={20} />
+                    </button>
+                  </div>
+                )) : (
+                  <div className="text-center py-20 bg-white rounded-2xl border border-dashed">
+                    <Calendar size={48} className="mx-auto mb-4 opacity-10" />
+                    <p className="text-slate-400">No appointments scheduled yet.</p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}

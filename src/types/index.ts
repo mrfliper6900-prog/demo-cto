@@ -30,6 +30,17 @@ export interface ContentIdea {
   cta: string;
 }
 
+export interface Appointment {
+  id: number;
+  lead_id: string;
+  start_time: string;
+  end_time?: string;
+  status: 'pending' | 'confirmed' | 'cancelled';
+  created_at: string;
+  lead_name?: string;
+  lead_phone?: string;
+}
+
 export interface Settings {
   key: string;
   value: string;

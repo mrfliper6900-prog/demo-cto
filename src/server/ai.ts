@@ -1,5 +1,6 @@
 import { Lead, Message, ContentIdea } from '../types/index.js';
 import OpenAI from 'openai';
+import { calendarService } from './calendar.js';
 
 // This will be replaced with real OpenAI calls once the API key is available
 export async function generateContentIdeas(): Promise<ContentIdea[]> {
@@ -64,11 +65,30 @@ export async function qualifyLeadWithAI(lead: Lead, lastMessage: string, history
   location?: string;
   name?: string;
   response: string;
+  book_slot?: { start: string, end: string };
 }> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     // Fallback to basic keyword matching logic
     const msg = lastMessage.toLowerCase();
+    
+    // Check for slot selection (mock implementation)
+    if (msg.includes('book') || msg.includes('slot') || msg.includes('9am') || msg.includes('2pm')) {
+      const slots = await calendarService.getAvailableSlots();
+      // Simple logic: if they mention '9am', pick the first 9am slot
+      if (msg.includes('9am')) {
+        return {
+          response: `Great! I've booked you for ${slots[0].start}. You'll receive a confirmation SMS shortly.`,
+          book_slot: slots[0]
+        };
+      }
+      
+      const slotList = slots.slice(0, 3).map(s => `${s.start}`).join('\n- ');
+      return {
+        response: `We have the following slots available:\n- ${slotList}\nWhich one works for you?`
+      };
+    }
+
     if (msg.includes('roof') || msg.includes('leak') || msg.includes('repair')) {
       return {
         job_type: 'roofing',
@@ -83,20 +103,26 @@ export async function qualifyLeadWithAI(lead: Lead, lastMessage: string, history
 
   const openai = new OpenAI({ apiKey });
   
+  const slots = await calendarService.getAvailableSlots();
+  const slotList = slots.map(s => `${s.start} to ${s.end}`).join('\n');
+
   const completion = await openai.chat.completions.create({
     model: "gpt-3.5-turbo",
     messages: [
       {
         role: "system",
-        content: `You are an AI assistant for United States Roofing Corporation. Your goal is to qualify leads from SMS conversations.
-Extract the following information if available: name, job type, urgency, and location.
-Determine the lead status: 'hot' (urgent/ready to book), 'warm' (interested/needs info), 'cold' (not interested).
-Respond to the user in a friendly, professional manner. Keep it short for SMS.
+        content: `You are an AI assistant for United States Roofing Corporation. Your goal is to qualify leads and book appointments.
+Extract: name, job type, urgency, location.
+Status: 'hot', 'warm', 'cold'.
+Available Slots:\n${slotList}
+
+If the lead is ready to book, offer them available slots.
+If they pick a slot, include it in the 'book_slot' field of the JSON.
 
 Current Lead Data: ${JSON.stringify(lead)}
 Conversation History: ${history.map(m => `${m.sender}: ${m.content}`).join('\n')}
 
-Return a JSON object with: status, job_type, urgency, location, name, and response.`
+Return a JSON object with: status, job_type, urgency, location, name, response, and optionally book_slot {start, end}.`
       },
       {
         role: "user",
